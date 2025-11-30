@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "ModularInventory",
+	"Description": "Replicated modular inventory system, inspired by Lyra Sample Game",
+	"Category": "Other",
+	"CreatedBy": "Peter Gyarmati",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "ModularInventory",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
