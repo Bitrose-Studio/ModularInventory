@@ -27,11 +27,13 @@ void UInventoryItemDefinition::RebuildDynamicTags()
 		if (!Fragment) continue;
 		Fragment->AddDynamicTags(DynamicTags);
 	}
+	DynamicTags.AppendTags(GameplayTags);
 }
 
 void UInventoryItemDefinition::GetCombinedTags(FGameplayTagContainer& OutTags) const
 {
-	OutTags = DynamicTags;
+	OutTags = GameplayTags;
+	OutTags.AppendTags(DynamicTags);
 }
 
 void UInventoryItemDefinition::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
@@ -49,7 +51,7 @@ void UInventoryItemDefinition::PostEditChangeProperty(struct FPropertyChangedEve
 		PropertyChangedEvent.GetMemberPropertyName() == FragmentsName)
 	{
 		RebuildDynamicTags();
-		return;
+		//return;
 	}
 
 	// Also: maybe always rebuild on any change, it's cheap.

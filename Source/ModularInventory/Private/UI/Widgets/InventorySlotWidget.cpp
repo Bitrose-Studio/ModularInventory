@@ -173,11 +173,13 @@ bool UInventorySlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
 	}
 
 	// Different inventories → move full stack
-	if (DragOp->ItemGuid.IsValid() && DragOp->SourceInventory)
+	if (DragOp->ItemGuid.IsValid() && DragOp->SourceInventory != OwningInventory)
 	{
 		DragOp->SourceInventory->MoveItemToInventory(
 			OwningInventory,
-			DragOp->ItemGuid
+			DragOp->ItemGuid,
+			DragOp->Quantity,
+			SlotIndex
 		);
 		return true;
 	}

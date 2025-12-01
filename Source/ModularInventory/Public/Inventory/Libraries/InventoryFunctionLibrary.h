@@ -21,4 +21,12 @@ public:
 	static const UInventoryItemFragment* FindItemDefinitionFragmentByClass(
 		const UInventoryItemDefinition* ItemDef,
 		TSubclassOf<UInventoryItemFragment> FragmentClass);
+	
+	// Blueprint-friendly AddItem wrapper that takes the asset
+	UFUNCTION(BlueprintCallable, Category="Modular Inventory|Inventory",
+			  meta=(DefaultToSelf="Inventory"))
+	static bool AddItemFromDefinition(
+		UInventoryComponent* Inventory,
+		const UInventoryItemDefinition* ItemDef,
+		int32 Quantity);
 };

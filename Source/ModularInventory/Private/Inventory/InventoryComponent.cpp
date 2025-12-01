@@ -4,6 +4,7 @@
 #include "Inventory/InventoryComponent.h"
 
 #include "DataAssets/InventoryItemDefinition.h"
+#include "DataAssets/InventoryLootTable.h"
 #include "Engine/ActorChannel.h"
 #include "Inventory/InventoryItemInstance.h"
 #include "Inventory/Fragments/ItemFragment_Stackable.h"
@@ -27,8 +28,8 @@ void FInventoryEntry::PostReplicatedChange(const struct FInventoryList& Serializ
 
 UInventoryItemInstance* FInventoryEntry::GetItemInstance() const
 {
-	if (!ItemInstance.IsValid()) return nullptr;
-	return ItemInstance.Get();
+	if (!ItemInstance) return nullptr;
+	return ItemInstance;
 }
 
 TArray<UInventoryItemInstance*> FInventoryList::GetAllItems() const
@@ -37,8 +38,8 @@ TArray<UInventoryItemInstance*> FInventoryList::GetAllItems() const
 	Results.Reserve(Entries.Num());
 	for (const auto& Entry : Entries)
 	{
-		if (!Entry.ItemInstance.IsValid()) continue;
-		Results.Add(Entry.ItemInstance.Get());
+		if (!Entry.ItemInstance) continue;
+		Results.Add(Entry.ItemInstance);
 	}
 	return Results;
 }
@@ -90,11 +91,33 @@ void FInventoryList::AddItem(UInventoryItemInstance* Instance, int32 Quantity)
 {
 	checkf(OwnerComponent, TEXT("Error! OwnerComponent not set."));
 	
+	if (UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent))
+	{
+		AddItemToSlot(Instance, Quantity, InventoryComponent->FindFirstFreeSlotIndex(), InventoryComponent);
+		return;
+	}
+	UE_LOG(LogTemp, Error, TEXT("Owner Component Cast Failed!"));
+}
+
+void FInventoryList::AddItem(UInventoryItemInstance* Instance, int32 Quantity, int32 PreferredSlotIndex)
+{
+	checkf(OwnerComponent, TEXT("Error! OwnerComponent not set."));
+	
+	if (UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent))
+	{
+		AddItemToSlot(Instance, Quantity, PreferredSlotIndex, InventoryComponent);
+		return;
+	}
+	UE_LOG(LogTemp, Error, TEXT("Owner Component Cast Failed!"));
+}
+
+void FInventoryList::AddItemToSlot(UInventoryItemInstance* Instance, int32 Quantity, int32 SlotIndex, UInventoryComponent* InOwnerComponent)
+{	
 	FInventoryEntry NewEntry;
 	NewEntry.ItemInstance = Instance;
 	NewEntry.Quantity = Quantity;
 	NewEntry.ItemGuid = FGuid::NewGuid();
-	NewEntry.SlotIndex = Cast<UInventoryComponent>(OwnerComponent)->FindFirstFreeSlotIndex();
+	NewEntry.SlotIndex = SlotIndex;
 	
 	UE_LOG(LogTemp, Log, TEXT("[InventoryList] AddItem: %s"),
 		*NewEntry.GetDebugString());
@@ -102,7 +125,7 @@ void FInventoryList::AddItem(UInventoryItemInstance* Instance, int32 Quantity)
 	Entries.Add(NewEntry);
 	MarkItemDirty(NewEntry);
 	
-	Cast<UInventoryComponent>(OwnerComponent)->PostInventoryItemAdded(NewEntry);
+	InOwnerComponent->PostInventoryItemAdded(NewEntry);
 }
 
 bool FInventoryList::RemoveItem(const FGuid& ItemGuid, int32 QuantityToRemove)
@@ -249,9 +272,9 @@ bool UInventoryComponent::AddItem(const UInventoryItemDefinition* ItemDef, int32
 	{
 		const int32 MaxStackSize = StackableFragment->GetMaxStackLimit();
 
-		for (FInventoryEntry& Entry : InventoryEntries.GetAllEntries())
+		for (FInventoryEntry& Entry : InventoryEntries.GetAllEntriesRef())
 		{
-			if (Entry.ItemInstance.IsValid() && Entry.ItemInstance->ItemDef == ItemDef)
+			if (Entry.ItemInstance && Entry.ItemInstance->ItemDef == ItemDef)
 			{
 				const int32 RemainingSpace = MaxStackSize - Entry.Quantity;
 				if (RemainingSpace > 0)
@@ -385,7 +408,7 @@ bool UInventoryComponent::SplitItemStackForDrag(const FGuid& ItemGuid, int32 Spl
 	PostInventoryItemChanged(SourceItem);
 
 	// --- Create new instance for the new stack ---
-	if (!SourceItem.ItemInstance.IsValid() || !SourceItem.ItemInstance->ItemDef)
+	if (!SourceItem.ItemInstance || !SourceItem.ItemInstance->ItemDef)
 	{
 		return false;
 	}
@@ -429,51 +452,222 @@ void UInventoryComponent::SplitAndMoveItem(const FGuid& SourceItemGuid, int32 Sp
 		return;
 	}
 	
-	// Different inventory
-	MoveItemToInventory(TargetInventory, NewGuid, SplitQuantity);
+	// Different inventory, try to move the new half to the target inventory
+	const bool bMoveSuccess = MoveItemToInventory(TargetInventory, NewGuid, SplitQuantity, TargetSlotIndex);
+	
+	if (!bMoveSuccess)
+	{
+		// Move failed (target full, tag filter, etc.)
+		// We must rollback the split so the player never "loses" items.
+
+		TArray<FInventoryEntry>& Items = InventoryEntries.GetAllEntriesRef();
+
+		// Find the newly created stack
+		int32 NewIndex = Items.IndexOfByPredicate(
+			[&NewGuid](const FInventoryEntry& Item)
+			{
+				return Item.ItemGuid == NewGuid;
+			});
+
+		// Find original stack (if still around)
+		int32 SourceIndex = Items.IndexOfByPredicate(
+			[&SourceItemGuid](const FInventoryEntry& Item)
+			{
+				return Item.ItemGuid == SourceItemGuid;
+			});
+
+		if (NewIndex != INDEX_NONE)
+		{
+			FInventoryEntry& NewItem = Items[NewIndex];
+
+			if (SourceIndex != INDEX_NONE)
+			{
+				// Merge the split quantity back into the original stack
+				FInventoryEntry& SourceItem = Items[SourceIndex];
+				SourceItem.Quantity += NewItem.Quantity;
+				InventoryEntries.MarkItemDirty(SourceItem);
+				PostInventoryItemChanged(SourceItem);
+			}
+			else
+			{
+				// No original stack found (edge case). Just keep the new stack;
+				// better to have extra items than to lose them.
+				UE_LOG(LogTemp, Warning, TEXT("No original stack found."));
+				return;
+			}
+
+			// Remove the temporary split stack
+			const int32 RestoredQty = NewItem.Quantity;
+			InventoryEntries.RemoveItem(NewGuid, RestoredQty); // will fire events
+		}
+	}
 }
 
 bool UInventoryComponent::MoveItemToInventory(UInventoryComponent* TargetInventory, const FGuid& ItemGuid,
-                                              int32 Quantity)
+                                              int32 Quantity, int32 TargetSlotIndex)
 {
-	if (!TargetInventory)
+	if (!TargetInventory) return false;
+
+	// -------- SOURCE LOOKUP --------
+	TArray<FInventoryEntry>& SourceItems = InventoryEntries.GetAllEntriesRef();
+
+	int32 SourceIndex = SourceItems.IndexOfByPredicate(
+		[&ItemGuid](const FInventoryEntry& Item)
+		{
+			return Item.ItemGuid == ItemGuid;
+		});
+
+	if (SourceIndex == INDEX_NONE)
 	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[InventoryComponent] MoveItemToInventory: Item not found (%s)"),
+			*ItemGuid.ToString());
 		return false;
 	}
 
-	int32 Index = InventoryEntries.GetAllEntries().IndexOfByPredicate([&](const FInventoryEntry& Item)
-	{
-		return Item.ItemGuid == ItemGuid;
-	});
+	FInventoryEntry& SourceItem = InventoryEntries.GetEntryByIndex(SourceIndex);
 
-	if (Index == INDEX_NONE)
-	{
-		return false;
-	}
-
-	FInventoryEntry& SourceItem = InventoryEntries.GetEntryByIndex(Index);
-
-	const int32 MoveQuantity = (Quantity <= 0 || Quantity > SourceItem.Quantity)
-		? SourceItem.Quantity
-		: Quantity;
-
-	if (!SourceItem.ItemInstance.IsValid() || !SourceItem.ItemInstance->ItemDef)
+	if (!SourceItem.ItemInstance || !SourceItem.ItemInstance->ItemDef)
 	{
 		return false;
 	}
 
 	const UInventoryItemDefinition* ItemDef = SourceItem.ItemInstance->ItemDef;
 
-	// Try to add to target first
-	const bool bFullyAdded = TargetInventory->AddItem(ItemDef, MoveQuantity);
-	if (!bFullyAdded)
+	const int32 MoveQuantity = (Quantity <= 0 || Quantity > SourceItem.Quantity)
+		? SourceItem.Quantity
+		: Quantity;
+
+	if (MoveQuantity <= 0)
 	{
-		// Simple version: if not fully added, fail move (no partial moves)
 		return false;
 	}
 
+	// -------- NO TARGET SLOT SPECIFIED: old behavior --------
+	if (TargetSlotIndex == INDEX_NONE)
+	{
+		const bool bFullyAdded = TargetInventory->AddItem(ItemDef, MoveQuantity);
+		if (!bFullyAdded)
+		{
+			// Simple version: if not fully added, fail move (no partial moves)
+			return false;
+		}
+
+		// Remove from this inventory
+		InventoryEntries.RemoveItem(ItemGuid, MoveQuantity);
+
+		return true;
+	}
+
+	// -------- TARGET SLOT SPECIFIED: honor where the user dropped --------
+
+	// Clamp / validate TargetSlotIndex against target's MaxSlots
+	if (TargetInventory->MaxSlots > 0)
+	{
+		if (TargetSlotIndex < 0 || TargetSlotIndex >= TargetInventory->MaxSlots)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[InventoryComponent] MoveItemToInventory: TargetSlotIndex %d out of range (MaxSlots=%d)"),
+				TargetSlotIndex, TargetInventory->MaxSlots);
+			return false;
+		}
+	}
+	else
+	{
+		TargetSlotIndex = FMath::Max(0, TargetSlotIndex);
+	}
+
+	TArray<FInventoryEntry>& TargetItems = TargetInventory->InventoryEntries.GetAllEntriesRef();
+
+	// Find if there's already an item in the target slot
+	FInventoryEntry* TargetItem = TargetItems.FindByPredicate(
+		[TargetSlotIndex](const FInventoryEntry& Item)
+		{
+			return Item.SlotIndex == TargetSlotIndex;
+		});
+
+	// Check stackable trait
+	const UItemFragment_Stackable* StackableFragment =
+		ItemDef->FindFragmentByClass<UItemFragment_Stackable>();
+
+	const int32 MaxStackSize = StackableFragment
+		? StackableFragment->GetMaxStackLimit()
+		: 1;
+
+	int32 RemainingToMove = MoveQuantity;
+
+	// -----------------------------
+	// 1) MERGE into existing target stack if compatible
+	// -----------------------------
+	if (TargetItem &&
+		StackableFragment &&
+		TargetItem->ItemInstance &&
+		TargetItem->ItemInstance->ItemDef == ItemDef)
+	{
+		const int32 Space          = MaxStackSize - TargetItem->Quantity;
+		const int32 TransferQty    = FMath::Min(Space, RemainingToMove);
+
+		if (Space > 0 && TransferQty > 0)
+		{
+			TargetItem->Quantity += TransferQty;
+			TargetInventory->InventoryEntries.MarkItemDirty(*TargetItem);
+			TargetInventory->PostInventoryItemChanged(*TargetItem);
+
+			// Remove moved quantity from the source stack
+			InventoryEntries.RemoveItem(ItemGuid, TransferQty);
+
+			UE_LOG(LogTemp, Log,
+				TEXT("[InventoryComponent] MoveItemToInventory MERGE: %s -> TargetSlot=%d (+%d, now %d)"),
+				*ItemGuid.ToString(), TargetSlotIndex, TransferQty, TargetItem->Quantity);
+
+			// If we didn't move the full amount, leave the remainder in the source
+			RemainingToMove -= TransferQty;
+		}
+
+		// We consider the operation "successful" if we moved at least something
+		return (TransferQty > 0);
+	}
+
+	// -----------------------------
+	// 2) TARGET SLOT TAKEN by incompatible item -> currently we fail
+	//    (optional: implement cross-inventory swap here later)
+	// -----------------------------
+	if (TargetItem)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent] MoveItemToInventory: Target slot %d occupied by different item, swap not implemented yet."),
+			TargetSlotIndex);
+		return false;
+	}
+
+	// -----------------------------
+	// 3) EMPTY SLOT: create new stack at that exact slot
+	// -----------------------------
+
+	// Capacity check for creating a new stack
+	if (TargetInventory->MaxSlots > 0 &&
+		TargetInventory->InventoryEntries.GetEntriesCount() >= TargetInventory->MaxSlots)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent] MoveItemToInventory: no free slot for new stack in target inventory"));
+		return false;
+	}
+
+	// Create instance in target inventory
+	UInventoryItemInstance* NewInstance = TargetInventory->CreateItemInstance(ItemDef);
+	if (!NewInstance)
+	{
+		return false;
+	}
+
+	TargetInventory->InventoryEntries.AddItem(NewInstance, RemainingToMove, TargetSlotIndex);
+
 	// Remove from this inventory
-	InventoryEntries.RemoveItem(ItemGuid, MoveQuantity);
+	InventoryEntries.RemoveItem(ItemGuid, RemainingToMove);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[InventoryComponent] MoveItemToInventory: Moved %d of %s -> TargetSlot=%d"),
+		RemainingToMove, *ItemGuid.ToString(), TargetSlotIndex);
 
 	return true;
 }
@@ -530,7 +724,7 @@ bool UInventoryComponent::MoveItemByGuid(const FGuid& ItemGuid, int32 TargetSlot
 	// 1) Try to MERGE into target stack
 	// -----------------------------
 	if (TargetItem &&
-		SourceItem->ItemInstance.IsValid() && TargetItem->ItemInstance.IsValid() &&
+		SourceItem->ItemInstance && TargetItem->ItemInstance &&
 		SourceItem->ItemInstance->ItemDef &&
 		SourceItem->ItemInstance->ItemDef == TargetItem->ItemInstance->ItemDef)
 	{
@@ -620,6 +814,23 @@ bool UInventoryComponent::CanAcceptItemDefinition(const UInventoryItemDefinition
 	return AllowedItemTagQuery.Matches(Tags);
 }
 
+void UInventoryComponent::GenerateLootFromTable(UInventoryLootTable* LootTable, int32 RandomSeed)
+{
+	if (!LootTable)
+	{
+		return;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || !OwnerActor->HasAuthority())
+	{
+		// Only the server should generate loot; clients will get it via replication.
+		return;
+	}
+
+	LootTable->GenerateLoot(this, RandomSeed);
+}
+
 void UInventoryComponent::PostInventoryItemAdded(const FInventoryEntry& Item)
 {
 	UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] Item Added: %s"),
@@ -656,7 +867,7 @@ bool UInventoryComponent::ReplicateSubobjects(UActorChannel* Channel, FOutBunch*
 
 	for (FInventoryEntry& Entry : InventoryEntries.GetAllEntries())
 	{
-		if (!Entry.ItemInstance.IsValid()) continue;
+		if (!Entry.ItemInstance) continue;
 		
 		UInventoryItemInstance* Instance = Entry.ItemInstance.Get();
 		if (Instance && IsValid(Instance))
@@ -676,7 +887,7 @@ void UInventoryComponent::ReadyForReplication()
 	{
 		for (const FInventoryEntry& Entry : InventoryEntries.GetAllEntries())
 		{
-			if (!Entry.ItemInstance.IsValid()) continue;
+			if (!Entry.ItemInstance) continue;
 			
 			UInventoryItemInstance* Instance = Entry.ItemInstance.Get();
 			if (IsValid(Instance))

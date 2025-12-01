@@ -7,6 +7,7 @@
 #include "Inventory/InventoryComponent.h"
 #include "InventorySlotWidget.generated.h"
 
+class UInventoryDragDropOperation;
 /**
  * 
  */

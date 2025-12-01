@@ -66,6 +66,11 @@ void UInventoryPanelWidget::RebuildFromInventory()
 	const TArray<FInventoryEntry>& Items = SourceInventory->InventoryEntries.GetAllEntriesRef();
 	const int32 MaxSlots = SourceInventory->GetMaxSlots();
 	const int32 NumSlotsToShow = (MaxSlots > 0) ? MaxSlots : Items.Num();
+	
+	for (const auto Item : Items)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: %d"), *Item.GetDebugString(), Item.GetQuantity());
+	}
 
 	for (int32 SlotIndex = 0; SlotIndex < NumSlotsToShow; ++SlotIndex)
 	{

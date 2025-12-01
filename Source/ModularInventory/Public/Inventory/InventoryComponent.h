@@ -10,6 +10,7 @@
 #include "Net/Serialization/FastArraySerializer.h"
 #include "InventoryComponent.generated.h"
 
+class UInventoryLootTable;
 
 UENUM(BlueprintType)
 enum class EInventoryContainerType : uint8
@@ -37,7 +38,7 @@ struct FInventoryEntry : public FFastArraySerializerItem
 	/**
 	 * Helper functions for UI
 	 */
-	bool IsItemInstanceValid() const { return ItemInstance.IsValid(); }
+	bool IsItemInstanceValid() const { return IsValid(ItemInstance); }
 	
 	UInventoryItemInstance* GetItemInstance() const;
 	int32 GetQuantity() const { return Quantity; }
@@ -49,7 +50,7 @@ struct FInventoryEntry : public FFastArraySerializerItem
 	 */
 	FString GetDebugString() const
 	{
-		FString DefName = ItemInstance.IsValid() && ItemInstance->ItemDef
+		FString DefName = IsValid(ItemInstance) && ItemInstance->ItemDef
 			? ItemInstance->ItemDef->GetName()
 			: TEXT("None");
 		return FString::Printf(TEXT("Item=%s Qty=%d Guid=%s"),
@@ -61,7 +62,7 @@ private:
 	friend class UInventoryComponent;
 	
 	UPROPERTY(BlueprintReadOnly, Category = "Modular Inventory|Inventory Entry", meta = (AllowPrivateAccess = true))
-	TWeakObjectPtr<UInventoryItemInstance> ItemInstance = nullptr;
+	TObjectPtr<UInventoryItemInstance> ItemInstance = nullptr;
 	UPROPERTY(BlueprintReadOnly, Category = "Modular Inventory|Inventory Entry", meta = (AllowPrivateAccess = true))
 	int32 Quantity = 1;
 	UPROPERTY(BlueprintReadOnly, Category = "Modular Inventory|Inventory Entry", meta = (AllowPrivateAccess = true))
@@ -108,6 +109,7 @@ struct FInventoryList : public FFastArraySerializer
 	}
 	
 	void AddItem(UInventoryItemInstance* Instance, int32 Quantity);
+	void AddItem(UInventoryItemInstance* Instance, int32 Quantity, int32 PreferredSlotIndex);
 	bool RemoveItem(const FGuid& ItemGuid, int32 QuantityToRemove);
 	
 private:
@@ -119,6 +121,8 @@ private:
 	
 	UPROPERTY(NotReplicated)
 	TObjectPtr<UActorComponent> OwnerComponent;
+	
+	void AddItemToSlot(UInventoryItemInstance* Instance, int32 Quantity, int32 SlotIndex, UInventoryComponent* InOwnerComponent);
 };
 
 template<>
@@ -179,7 +183,11 @@ public:
 	void SplitAndMoveItem(const FGuid& SourceItemGuid, int32 SplitQuantity, UInventoryComponent* TargetInventory, int32 TargetSlotIndex);
 	
 	UFUNCTION(BlueprintCallable, Category="Modular Inventory|Inventory")
-	bool MoveItemToInventory(UInventoryComponent* TargetInventory, const FGuid& ItemGuid, int32 Quantity = -1);
+	bool MoveItemToInventory(
+		UInventoryComponent* TargetInventory, 
+		const FGuid& ItemGuid, 
+		int32 Quantity = -1, 
+		int32 TargetSlotIndex = -1);
 	
 	UFUNCTION(BlueprintCallable, Category="Modular Inventory|Inventory")
 	bool MoveItemByGuid(const FGuid& ItemGuid, int32 TargetSlotIndex);
@@ -187,6 +195,10 @@ public:
 	/** Checks if this container can accept the given definition (tag filter only, not capacity). */
 	UFUNCTION(BlueprintPure, Category="Modular Inventory|Inventory")
 	bool CanAcceptItemDefinition(const UInventoryItemDefinition* ItemDef) const;
+	
+	/** Fill this inventory using the specified loot table (server-only). */
+	UFUNCTION(BlueprintCallable, Category="Modular Inventory|Loot")
+	void GenerateLootFromTable(UInventoryLootTable* LootTable, int32 RandomSeed = 0);
 
 	// Called from FInventoryList
 	void PostInventoryItemAdded(const FInventoryEntry& Item);
