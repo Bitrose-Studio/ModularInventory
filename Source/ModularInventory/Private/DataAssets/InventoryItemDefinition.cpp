@@ -22,12 +22,12 @@ const UInventoryItemFragment* UInventoryItemDefinition::FindFragmentByClass(
 void UInventoryItemDefinition::RebuildDynamicTags()
 {
 	DynamicTags.Reset();
+	DynamicTags = GameplayTags;
 	for (const UInventoryItemFragment* Fragment : Fragments)
 	{
 		if (!Fragment) continue;
 		Fragment->AddDynamicTags(DynamicTags);
 	}
-	DynamicTags.AppendTags(GameplayTags);
 }
 
 void UInventoryItemDefinition::GetCombinedTags(FGameplayTagContainer& OutTags) const

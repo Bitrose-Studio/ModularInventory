@@ -25,7 +25,8 @@ AInventoryPickupActor::AInventoryPickupActor()
 	Collision->SetSphereRadius(50.f);
 	Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Collision->SetCollisionObjectType(ECC_WorldDynamic);
-	Collision->SetCollisionResponseToAllChannels(ECR_Overlap);
+	Collision->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	Collision->OnComponentBeginOverlap.AddDynamic(this, &AInventoryPickupActor::HandleOverlap);
 
 	// Static mesh (default visible)
@@ -59,7 +60,7 @@ void AInventoryPickupActor::HandleOverlap(UPrimitiveComponent* OverlappedCompone
 		return;
 	}
 
-	if (!OtherActor || OtherActor == this)
+	if (!OtherActor || !OtherActor->ActorHasTag("Player"))
 	{
 		return;
 	}
@@ -84,6 +85,8 @@ void AInventoryPickupActor::ServerTryPickup_Implementation(AActor* OverlappingAc
 	// Use your Blueprint-friendly helper that wraps AddItem()
 	const bool bAdded = UInventoryFunctionLibrary::AddItemFromDefinition(
 		Inventory, ItemDefinition, Quantity);
+	
+	UE_LOG(LogTemp, Warning, TEXT("%d"), bAdded);
 
 	if (bAdded)
 	{

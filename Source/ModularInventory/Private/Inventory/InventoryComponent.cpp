@@ -11,20 +11,20 @@
 #include "Net/UnrealNetwork.h"
 
 
-void FInventoryEntry::PreReplicatedRemove(const struct FInventoryList& Serializer)
-{
-	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PreReplicatedRemove"));
-}
-
-void FInventoryEntry::PostReplicatedAdd(const struct FInventoryList& Serializer)
-{
-	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PostReplicatedAdd"));
-}
-
-void FInventoryEntry::PostReplicatedChange(const struct FInventoryList& Serializer)
-{
-	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PostReplicatedChange"));
-}
+// void FInventoryEntry::PreReplicatedRemove(const struct FInventoryList& Serializer)
+// {
+// 	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PreReplicatedRemove"));
+// }
+//
+// void FInventoryEntry::PostReplicatedAdd(const struct FInventoryList& Serializer)
+// {
+// 	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PostReplicatedAdd"));
+// }
+//
+// void FInventoryEntry::PostReplicatedChange(const struct FInventoryList& Serializer)
+// {
+// 	UE_LOG(LogTemp, Log, TEXT("[FInventoryEntry] PostReplicatedChange"));
+// }
 
 UInventoryItemInstance* FInventoryEntry::GetItemInstance() const
 {
@@ -46,69 +46,51 @@ TArray<UInventoryItemInstance*> FInventoryList::GetAllItems() const
 
 void FInventoryList::PreReplicatedRemove(const TArrayView<int32> RemovedIndices, int32 FinalSize)
 {
-	UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent);
-	if (!IsValid(InventoryComponent)) return;
+	if (!IsValid(OwnerComponent)) return;
 	
 	for (int32 Index : RemovedIndices)
 	{
-		InventoryComponent->OnItemRemoved.Broadcast(Entries[Index]);
+		OwnerComponent->OnItemRemoved.Broadcast(Entries[Index]);
 		UE_LOG(LogTemp, Log, TEXT("[FInventoryList] PreReplicationRemove: %d"), Index);
 	}
-		
 }
 
 void FInventoryList::PostReplicatedAdd(const TArrayView<int32> AddedIndices, int32 FinalSize)
 {
-	UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent);
-	if (!IsValid(InventoryComponent))
-	{
-		UE_LOG(LogTemp, Error, TEXT("[FInventoryList] PostReplicatedAdd: No OwnerComponent!")); 
-		return;
-	}
+	if (!IsValid(OwnerComponent)) return;
 	
 	for (int32 Index : AddedIndices)
 	{
-		InventoryComponent->OnItemAdded.Broadcast(Entries[Index]);
+		OwnerComponent->OnItemAdded.Broadcast(Entries[Index]);
 		UE_LOG(LogTemp, Log, TEXT("[FInventoryList] PostReplicatedAdd: %d"), Index);
 	}
-	UE_LOG(LogTemp, Warning, TEXT("[FInventoryList] PostReplicatedAdd: End of the function."));	
 }
 
 void FInventoryList::PostReplicatedChange(const TArrayView<int32> ChangedIndices, int32 FinalSize)
 {
-	UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent);
-	if (!IsValid(InventoryComponent)) return;
+	if (!IsValid(OwnerComponent)) return;
 	
 	for (int32 Index : ChangedIndices)
 	{
-		InventoryComponent->OnItemChanged.Broadcast(Entries[Index]);
+		OwnerComponent->OnItemChanged.Broadcast(Entries[Index]);
 		UE_LOG(LogTemp, Log, TEXT("[FInventoryList] PostReplicatedChange: %d"), Index);
 	}
-		
 }
 
 void FInventoryList::AddItem(UInventoryItemInstance* Instance, int32 Quantity)
 {
 	checkf(OwnerComponent, TEXT("Error! OwnerComponent not set."));
 	
-	if (UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent))
-	{
-		AddItemToSlot(Instance, Quantity, InventoryComponent->FindFirstFreeSlotIndex(), InventoryComponent);
-		return;
-	}
-	UE_LOG(LogTemp, Error, TEXT("Owner Component Cast Failed!"));
+	AddItemToSlot(Instance, Quantity, OwnerComponent->FindFirstFreeSlotIndex(), OwnerComponent);
+
 }
 
 void FInventoryList::AddItem(UInventoryItemInstance* Instance, int32 Quantity, int32 PreferredSlotIndex)
 {
 	checkf(OwnerComponent, TEXT("Error! OwnerComponent not set."));
 	
-	if (UInventoryComponent* InventoryComponent = Cast<UInventoryComponent>(OwnerComponent))
-	{
-		AddItemToSlot(Instance, Quantity, PreferredSlotIndex, InventoryComponent);
-		return;
-	}
-	UE_LOG(LogTemp, Error, TEXT("Owner Component Cast Failed!"));
+	AddItemToSlot(Instance, Quantity, PreferredSlotIndex, OwnerComponent);
+
 }
 
 void FInventoryList::AddItemToSlot(UInventoryItemInstance* Instance, int32 Quantity, int32 SlotIndex, UInventoryComponent* InOwnerComponent)
@@ -123,9 +105,9 @@ void FInventoryList::AddItemToSlot(UInventoryItemInstance* Instance, int32 Quant
 		*NewEntry.GetDebugString());
 	
 	Entries.Add(NewEntry);
-	MarkItemDirty(NewEntry);
+	MarkItemDirty(NewEntry); // Is it should be Entries instead of the NewEntry?
 	
-	InOwnerComponent->PostInventoryItemAdded(NewEntry);
+	InOwnerComponent->PostInventoryItemAdded(NewEntry); // Is it should be Entries instead of the NewEntry?
 }
 
 bool FInventoryList::RemoveItem(const FGuid& ItemGuid, int32 QuantityToRemove)
@@ -156,14 +138,14 @@ bool FInventoryList::RemoveItem(const FGuid& ItemGuid, int32 QuantityToRemove)
 		
 		if (OwnerComponent)
 		{
-			Cast<UInventoryComponent>(OwnerComponent)->PostInventoryItemRemoved(RemovedEntry);
+			OwnerComponent->PostInventoryItemRemoved(RemovedEntry);
 		}
 	}
 	else
 	{
 		if (OwnerComponent)
 		{
-			Cast<UInventoryComponent>(OwnerComponent)->PostInventoryItemChanged(Entry);
+			OwnerComponent->PostInventoryItemChanged(Entry);
 		}
 	}
 
@@ -185,14 +167,16 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 		DOREPLIFETIME_CONDITION(ThisClass, InventoryEntries, COND_OwnerOnly);
 		DOREPLIFETIME_CONDITION(ThisClass, MaxSlots, COND_OwnerOnly);
 	}
-	
-	DOREPLIFETIME(ThisClass, InventoryEntries);
-	DOREPLIFETIME(ThisClass, MaxSlots);
+	else
+	{
+		DOREPLIFETIME(ThisClass, InventoryEntries);
+		DOREPLIFETIME(ThisClass, MaxSlots);
+	}
 }
 
 int32 UInventoryComponent::FindFirstFreeSlotIndex() const
 {
-	const TArray<FInventoryEntry>& CachedEntries = InventoryEntries.GetAllEntries();
+	const TArray<FInventoryEntry>& CachedEntries = InventoryEntries.GetAllEntriesRef();
 	
 	for (int32 i = 0; i < MaxSlots; ++i)
 	{
@@ -211,7 +195,8 @@ void UInventoryComponent::SetMaxSlots(int32 NewMaxSlots)
 	}
 
 	MaxSlots = NewMaxSlots;
-	OnRep_MaxSlots();
+	//OnRep_MaxSlots();
+	HandleMaxSlotsChanged();
 }
 
 int32 UInventoryComponent::GetFreeSlotCount() const
@@ -220,15 +205,37 @@ int32 UInventoryComponent::GetFreeSlotCount() const
 	return FMath::Max(0, MaxSlots - UsedSlots);
 }
 
-bool UInventoryComponent::FindItemByGuid(const FGuid& ItemGuid, FInventoryEntry& OutItem) const
+FInventoryEntry* UInventoryComponent::FindEntryByGuid(TArray<FInventoryEntry>& InEntries, const FGuid& ItemGuid)
 {
-	const FInventoryEntry* Found = InventoryEntries.GetAllEntries().FindByPredicate(
+	return InEntries.FindByPredicate(
 		[&ItemGuid](const FInventoryEntry& Item)
 		{
 			return Item.ItemGuid == ItemGuid;
 		});
+}
 
-	if (Found)
+const FInventoryEntry* UInventoryComponent::FindEntryByGuid(const TArray<FInventoryEntry>& InEntries,
+	const FGuid& ItemGuid) const
+{
+	return InEntries.FindByPredicate(
+		[&ItemGuid](const FInventoryEntry& Item)
+		{
+			return Item.ItemGuid == ItemGuid;
+		});
+}
+
+int32 UInventoryComponent::FindIndexByGuid(TArray<FInventoryEntry>& InEntries, const FGuid& ItemGuid) const
+{
+	return InEntries.IndexOfByPredicate(
+			[&ItemGuid](const FInventoryEntry& Item)
+			{
+				return Item.ItemGuid == ItemGuid;
+			});
+}
+
+bool UInventoryComponent::FindItemByGuid(const FGuid& ItemGuid, FInventoryEntry& OutItem) const
+{
+	if (const FInventoryEntry* Found = FindEntryByGuid(InventoryEntries.GetAllEntriesRef(), ItemGuid))
 	{
 		OutItem = *Found;
 		return true;
@@ -243,99 +250,66 @@ void UInventoryComponent::TryAddItem(const UInventoryItemDefinition* ItemDef)
 
 bool UInventoryComponent::AddItem(const UInventoryItemDefinition* ItemDef, int32 Quantity)
 {
-	if (!ItemDef || Quantity <= 0) return false;
-	
+	// Authority check
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AddItem called on non-authority. Ignoring."));
+		return false;
+	}
+
+	if (!ItemDef || Quantity <= 0)
+	{
+		return false;
+	}
+
 	if (!CanAcceptItemDefinition(ItemDef))
 	{
-		UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] AddItem: %s rejected by tag filter"),
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent] AddItem: %s rejected by tag filter"),
 			*GetNameSafe(ItemDef));
 		return false;
 	}
 
 	const int32 RequestedQuantity = Quantity;
 
-	// Stackable trait from fragment on THIS asset
+	// Check stackable fragment
 	const UItemFragment_Stackable* StackableFragment =
 		Cast<UItemFragment_Stackable>(
 			ItemDef->FindFragmentByClass(UItemFragment_Stackable::StaticClass())
 		);
 
-	UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] AddItem: %s x%d (Stackable=%s, MaxSlots=%d, Used=%d)"),
+	UE_LOG(LogTemp, Log,
+		TEXT("[InventoryComponent] AddItem: %s x%d (Stackable=%s, MaxSlots=%d, Used=%d)"),
 		*GetNameSafe(ItemDef),
 		Quantity,
 		StackableFragment ? TEXT("true") : TEXT("false"),
 		MaxSlots,
 		InventoryEntries.GetEntriesCount());
 
-	// 1) Fill existing stacks
+	// 1) If stackable, fill existing stacks first
 	if (StackableFragment)
 	{
-		const int32 MaxStackSize = StackableFragment->GetMaxStackLimit();
+		FillExistingStacks(ItemDef, StackableFragment, Quantity);
 
-		for (FInventoryEntry& Entry : InventoryEntries.GetAllEntriesRef())
+		// Fully added into existing stacks
+		if (Quantity <= 0)
 		{
-			if (Entry.ItemInstance && Entry.ItemInstance->ItemDef == ItemDef)
-			{
-				const int32 RemainingSpace = MaxStackSize - Entry.Quantity;
-				if (RemainingSpace > 0)
-				{
-					const int32 ToAdd = FMath::Min(RemainingSpace, Quantity);
-					Entry.Quantity += ToAdd;
-					Quantity       -= ToAdd;
-
-					InventoryEntries.MarkItemDirty(Entry);
-
-					if (GetOwnerRole() == ROLE_Authority)
-					{
-						PostInventoryItemChanged(Entry);
-					}
-
-					if (Quantity <= 0)
-					{
-						return true; // fully added
-					}
-				}
-			}
+			return true;
 		}
 	}
 
-	// 2) Create new stacks
-	while (Quantity > 0)
-	{
-		// Capacity check: 0 = unlimited slots
-		if (MaxSlots > 0 && InventoryEntries.GetEntriesCount() >= MaxSlots)
-		{
-			UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] AddItem: no free slots left, stopping (Remaining=%d)"),
-				Quantity);
-			break;
-		}
-
-		int32 AddQuantity = 1;
-		if (StackableFragment)
-		{
-			const int32 MaxStackSize = StackableFragment->GetMaxStackLimit();
-			AddQuantity = FMath::Min(Quantity, MaxStackSize);
-		}
-
-		// Use the asset as definition for the instance
-		UInventoryItemInstance* NewInstance = CreateItemInstance(ItemDef);
-		if (!NewInstance)
-		{
-			UE_LOG(LogTemp, Error, TEXT("[InventoryComponent] AddItem: failed to create instance for %s"),
-				*GetNameSafe(ItemDef));
-			break;
-		}
-
-		InventoryEntries.AddItem(NewInstance, AddQuantity);
-		Quantity -= AddQuantity;
-	}
+	// 2) Create new stacks / slots for remaining or non-stackable items
+	AddIntoNewSlots(ItemDef, StackableFragment, Quantity);
 
 	const bool bFullyAdded = (Quantity <= 0);
 	if (!bFullyAdded)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] AddItem: partially added %d of %d"),
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent] AddItem: partially added %d of %d"),
 			RequestedQuantity - Quantity, RequestedQuantity);
 	}
+
 	return bFullyAdded;
 }
 
@@ -351,23 +325,24 @@ bool UInventoryComponent::SwapItems(int32 SlotIndexA, int32 SlotIndexB)
 		return false;
 	}
 
-	if (!InventoryEntries.GetAllEntries().IsValidIndex(SlotIndexA) ||
-		!InventoryEntries.GetAllEntries().IsValidIndex(SlotIndexB))
+	TArray<FInventoryEntry>& Entries = InventoryEntries.GetAllEntriesRef();
+
+	if (!Entries.IsValidIndex(SlotIndexA) || !Entries.IsValidIndex(SlotIndexB))
 	{
 		return false;
 	}
 
-	FInventoryEntry& A = InventoryEntries.GetAllEntries()[SlotIndexA];
-	FInventoryEntry& B = InventoryEntries.GetAllEntries()[SlotIndexB];
+	FInventoryEntry& A = Entries[SlotIndexA];
+	FInventoryEntry& B = Entries[SlotIndexB];
 
-	InventoryEntries.GetAllEntries().Swap(SlotIndexA, SlotIndexB);
+	Entries.Swap(SlotIndexA, SlotIndexB);
 
 	// Mark both dirty so replication + UI picks up change
 	InventoryEntries.MarkItemDirty(A);
 	InventoryEntries.MarkItemDirty(B);
 
-	// Optional: force a full refresh event
-	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntries());
+	// Force a full refresh event
+	OnInventoryRefreshed.Broadcast(Entries);
 
 	return true;
 }
@@ -382,7 +357,7 @@ bool UInventoryComponent::SplitItemStackForDrag(const FGuid& ItemGuid, int32 Spl
 {
 	OutNewStackGuid.Invalidate();
 
-	int32 Index = InventoryEntries.GetAllEntries().IndexOfByPredicate([&](const FInventoryEntry& Item)
+	int32 Index = InventoryEntries.GetAllEntriesRef().IndexOfByPredicate([&](const FInventoryEntry& Item)
 	{
 		return Item.ItemGuid == ItemGuid;
 	});
@@ -423,9 +398,10 @@ bool UInventoryComponent::SplitItemStackForDrag(const FGuid& ItemGuid, int32 Spl
 	InventoryEntries.AddItem(NewInstance, SplitQuantity);
 
 	// The new stack is the last added
+	const TArray<FInventoryEntry>& Entries = InventoryEntries.GetAllEntriesRef();
 	if (InventoryEntries.GetEntriesCount() > 0)
 	{
-		const FInventoryEntry& NewItem = InventoryEntries.GetAllEntries().Last();
+		const FInventoryEntry& NewItem = Entries.Last();
 		OutNewStackGuid = NewItem.ItemGuid;
 
 		UE_LOG(LogTemp, Log, TEXT("[InventoryComponent] SplitItemStackForDrag: Guid=%s Split=%d NewGuid=%s"),
@@ -461,20 +437,12 @@ void UInventoryComponent::SplitAndMoveItem(const FGuid& SourceItemGuid, int32 Sp
 		// We must rollback the split so the player never "loses" items.
 
 		TArray<FInventoryEntry>& Items = InventoryEntries.GetAllEntriesRef();
-
+		
 		// Find the newly created stack
-		int32 NewIndex = Items.IndexOfByPredicate(
-			[&NewGuid](const FInventoryEntry& Item)
-			{
-				return Item.ItemGuid == NewGuid;
-			});
+		int32 NewIndex = FindIndexByGuid(Items, NewGuid);
 
 		// Find original stack (if still around)
-		int32 SourceIndex = Items.IndexOfByPredicate(
-			[&SourceItemGuid](const FInventoryEntry& Item)
-			{
-				return Item.ItemGuid == SourceItemGuid;
-			});
+		int32 SourceIndex = FindIndexByGuid(Items, SourceItemGuid);
 
 		if (NewIndex != INDEX_NONE)
 		{
@@ -511,11 +479,7 @@ bool UInventoryComponent::MoveItemToInventory(UInventoryComponent* TargetInvento
 	// -------- SOURCE LOOKUP --------
 	TArray<FInventoryEntry>& SourceItems = InventoryEntries.GetAllEntriesRef();
 
-	int32 SourceIndex = SourceItems.IndexOfByPredicate(
-		[&ItemGuid](const FInventoryEntry& Item)
-		{
-			return Item.ItemGuid == ItemGuid;
-		});
+	int32 SourceIndex = FindIndexByGuid(SourceItems, ItemGuid);
 
 	if (SourceIndex == INDEX_NONE)
 	{
@@ -540,6 +504,16 @@ bool UInventoryComponent::MoveItemToInventory(UInventoryComponent* TargetInvento
 
 	if (MoveQuantity <= 0)
 	{
+		return false;
+	}
+	
+	// 🔹 NEW: respect target inventory tag filter (hotbar, etc.)
+	if (!TargetInventory->CanAcceptItemDefinition(ItemDef))
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent] MoveItemToInventory: %s rejected by target tag filter on %s"),
+			*GetNameSafe(ItemDef),
+			*GetNameSafe(TargetInventory));
 		return false;
 	}
 
@@ -693,11 +667,7 @@ bool UInventoryComponent::MoveItemByGuid(const FGuid& ItemGuid, int32 TargetSlot
 	}
 
 	// Find the source item by Guid
-	FInventoryEntry* SourceItem = Items.FindByPredicate(
-		[&ItemGuid](const FInventoryEntry& Item)
-		{
-			return Item.ItemGuid == ItemGuid;
-		});
+	FInventoryEntry* SourceItem = FindEntryByGuid(Items, ItemGuid);
 
 	if (!SourceItem)
 	{
@@ -799,19 +769,32 @@ bool UInventoryComponent::CanAcceptItemDefinition(const UInventoryItemDefinition
 {
 	if (!ItemDef)
 	{
+		UE_LOG(LogTemp, Error, TEXT("Invalid ItemDefinition!"));
 		return false;
 	}
 
 	// If no query configured, accept everything
 	if (AllowedItemTagQuery.IsEmpty())
 	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[InventoryComponent][%s] CanAcceptItemDefinition: NO QUERY – accepting %s"),
+			*GetName(), *GetNameSafe(ItemDef));
 		return true;
 	}
 
 	FGameplayTagContainer Tags;
 	ItemDef->GetCombinedTags(Tags);
 
-	return AllowedItemTagQuery.Matches(Tags);
+	const bool bMatches = AllowedItemTagQuery.Matches(Tags);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[InventoryComponent][%s] CanAcceptItemDefinition: %s Tags=%s -> %s"),
+		*GetName(),
+		*GetNameSafe(ItemDef),
+		*Tags.ToStringSimple(),
+		bMatches ? TEXT("ACCEPT") : TEXT("REJECT"));
+
+	return bMatches;
 }
 
 void UInventoryComponent::GenerateLootFromTable(UInventoryLootTable* LootTable, int32 RandomSeed)
@@ -838,7 +821,7 @@ void UInventoryComponent::PostInventoryItemAdded(const FInventoryEntry& Item)
 	OnItemAdded.Broadcast(Item);
 	
 	// 🔹 Make sure all listeners (including widgets on clients) fully refresh
-	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntries());
+	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntriesRef());
 }
 
 void UInventoryComponent::PostInventoryItemRemoved(const FInventoryEntry& Item)
@@ -848,7 +831,7 @@ void UInventoryComponent::PostInventoryItemRemoved(const FInventoryEntry& Item)
 	OnItemRemoved.Broadcast(Item);
 	
 	// 🔹 Make sure all listeners (including widgets on clients) fully refresh
-	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntries());
+	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntriesRef());
 }
 
 void UInventoryComponent::PostInventoryItemChanged(const FInventoryEntry& Item)
@@ -858,14 +841,14 @@ void UInventoryComponent::PostInventoryItemChanged(const FInventoryEntry& Item)
 	OnItemChanged.Broadcast(Item);
 	
 	// 🔹 Make sure all listeners (including widgets on clients) fully refresh
-	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntries());
+	OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntriesRef());
 }
 
 bool UInventoryComponent::ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags)
 {
 	bool WroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
 
-	for (FInventoryEntry& Entry : InventoryEntries.GetAllEntries())
+	for (FInventoryEntry& Entry : InventoryEntries.GetAllEntriesRef())
 	{
 		if (!Entry.ItemInstance) continue;
 		
@@ -885,7 +868,7 @@ void UInventoryComponent::ReadyForReplication()
 	
 	if (IsUsingRegisteredSubObjectList())
 	{
-		for (const FInventoryEntry& Entry : InventoryEntries.GetAllEntries())
+		for (const FInventoryEntry& Entry : InventoryEntries.GetAllEntriesRef())
 		{
 			if (!Entry.ItemInstance) continue;
 			
@@ -943,7 +926,95 @@ UInventoryItemInstance* UInventoryComponent::CreateItemInstance(const UInventory
 	return NewInstance;
 }
 
+void UInventoryComponent::FillExistingStacks(const UInventoryItemDefinition* ItemDef,
+	const UItemFragment_Stackable* StackableFragment, int32& Quantity)
+{
+	if (!StackableFragment || Quantity <= 0)
+	{
+		return;
+	}
+
+	const int32 MaxStackSize = StackableFragment->GetMaxStackLimit();
+
+	for (FInventoryEntry& Entry : InventoryEntries.GetAllEntriesRef())
+	{
+		if (!Entry.ItemInstance || Entry.ItemInstance->ItemDef != ItemDef)
+		{
+			continue;
+		}
+
+		const int32 RemainingSpace = MaxStackSize - Entry.Quantity;
+		if (RemainingSpace <= 0)
+		{
+			continue;
+		}
+
+		const int32 ToAdd = FMath::Min(RemainingSpace, Quantity);
+		Entry.Quantity += ToAdd;
+		Quantity       -= ToAdd;
+
+		InventoryEntries.MarkItemDirty(Entry);
+
+		if (GetOwnerRole() == ROLE_Authority)
+		{
+			PostInventoryItemChanged(Entry);
+		}
+
+		if (Quantity <= 0)
+		{
+			break;
+		}
+	}
+}
+
+void UInventoryComponent::AddIntoNewSlots(const UInventoryItemDefinition* ItemDef,
+	const UItemFragment_Stackable* StackableFragment, int32& Quantity)
+{
+	if (Quantity <= 0)
+	{
+		return;
+	}
+
+	// Non-stackable: treat as stack size 1
+	const int32 MaxStackSize = StackableFragment
+		? StackableFragment->GetMaxStackLimit()
+		: 1;
+
+	while (Quantity > 0)
+	{
+		// Capacity check: inventory is always limited now
+		if (InventoryEntries.GetEntriesCount() >= MaxSlots)
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[InventoryComponent] AddItem: no free slots left, stopping (Remaining=%d)"),
+				Quantity);
+			break;
+		}
+
+		const int32 AddQuantity = FMath::Min(Quantity, MaxStackSize);
+
+		UInventoryItemInstance* NewInstance = CreateItemInstance(ItemDef);
+		if (!NewInstance)
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("[InventoryComponent] AddItem: failed to create instance for %s"),
+				*GetNameSafe(ItemDef));
+			break;
+		}
+
+		InventoryEntries.AddItem(NewInstance, AddQuantity);
+		Quantity -= AddQuantity;
+	}
+}
+
 void UInventoryComponent::OnRep_MaxSlots()
 {
-	///
+	HandleMaxSlotsChanged();
+}
+
+void UInventoryComponent::HandleMaxSlotsChanged()
+{
+	OnMaxSlotsChanged.Broadcast(MaxSlots);
+	// Optionally:
+	// OnInventoryRefreshed.Broadcast(InventoryEntries.GetAllEntriesRef());
 }

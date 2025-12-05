@@ -63,7 +63,7 @@ void UInventoryPanelWidget::RebuildFromInventory()
 
 	ItemsPanel->ClearChildren();
 
-	const TArray<FInventoryEntry>& Items = SourceInventory->InventoryEntries.GetAllEntriesRef();
+	const TArray<FInventoryEntry>& Items = SourceInventory->GetInventoryEntries().GetAllEntriesRef();
 	const int32 MaxSlots = SourceInventory->GetMaxSlots();
 	const int32 NumSlotsToShow = (MaxSlots > 0) ? MaxSlots : Items.Num();
 	

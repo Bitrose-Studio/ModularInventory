@@ -10,6 +10,7 @@
 #include "Net/Serialization/FastArraySerializer.h"
 #include "InventoryComponent.generated.h"
 
+class UItemFragment_Stackable;
 class UInventoryLootTable;
 
 UENUM(BlueprintType)
@@ -31,9 +32,9 @@ struct FInventoryEntry : public FFastArraySerializerItem
 	
 	FInventoryEntry() {}
 	
-	void PreReplicatedRemove(const struct FInventoryList& Serializer);
-	void PostReplicatedAdd(const struct FInventoryList& Serializer);
-	void PostReplicatedChange(const struct FInventoryList& Serializer);
+	// void PreReplicatedRemove(const struct FInventoryList& Serializer);
+	// void PostReplicatedAdd(const struct FInventoryList& Serializer);
+	// void PostReplicatedChange(const struct FInventoryList& Serializer);
 
 	/**
 	 * Helper functions for UI
@@ -80,15 +81,16 @@ struct FInventoryList : public FFastArraySerializer
 	GENERATED_BODY()
 	
 	FInventoryList() : OwnerComponent(nullptr) {}
-	FInventoryList(UActorComponent* InOwnerComponent) : OwnerComponent(InOwnerComponent) {}
+	FInventoryList(UInventoryComponent* InOwnerComponent) : OwnerComponent(InOwnerComponent) {}
 	
-	void SetOwnerComponent(UActorComponent* InOwnerComponent) { OwnerComponent = InOwnerComponent; }
+	void SetOwnerComponent(UInventoryComponent* InOwnerComponent) { OwnerComponent = InOwnerComponent; }
 	
 	TArray<UInventoryItemInstance*> GetAllItems() const;
 	
-	TArray<FInventoryEntry> GetAllEntries() const { return Entries; }
+	TArray<FInventoryEntry> GetAllEntriesCopy() const { return Entries; }
 	
-	TArray<FInventoryEntry>& GetAllEntriesRef() { return Entries; }
+	TArray<FInventoryEntry>& GetAllEntriesRef() { return Entries; } // Mutable
+	const TArray<FInventoryEntry>& GetAllEntriesRef() const { return Entries; }
 	
 	int32 GetEntriesCount() const { return Entries.Num(); }
 	
@@ -120,7 +122,7 @@ private:
 	TArray<FInventoryEntry> Entries;
 	
 	UPROPERTY(NotReplicated)
-	TObjectPtr<UActorComponent> OwnerComponent;
+	TObjectPtr<UInventoryComponent> OwnerComponent;
 	
 	void AddItemToSlot(UInventoryItemInstance* Instance, int32 Quantity, int32 SlotIndex, UInventoryComponent* InOwnerComponent);
 };
@@ -147,7 +149,9 @@ public:
 	
 	int32 FindFirstFreeSlotIndex() const;
 	
-	/** Set the maximum number of slots (stacks) this container can hold. 0 = unlimited. */
+	FInventoryList& GetInventoryEntries() { return InventoryEntries; }
+	
+	/** Set the maximum number of slots (stacks) this container can hold. */
 	UFUNCTION(BlueprintCallable, Category="Modular Inventory|Inventory")
 	void SetMaxSlots(int32 NewMaxSlots);
 
@@ -158,6 +162,11 @@ public:
 	/** Returns how many more stacks could be created (ignores stacking into existing stacks). */
 	UFUNCTION(BlueprintPure, Category="Modular Inventory|Inventory")
 	int32 GetFreeSlotCount() const;
+	
+	FInventoryEntry* FindEntryByGuid(TArray<FInventoryEntry>& InEntries, const FGuid& ItemGuid); // Mutable
+	const FInventoryEntry* FindEntryByGuid(const TArray<FInventoryEntry>& InEntries, const FGuid& ItemGuid) const;
+	
+	int32 FindIndexByGuid(TArray<FInventoryEntry>& InEntries, const FGuid& ItemGuid) const;
 	
 	UFUNCTION(BlueprintPure, Category="Modular Inventory|Inventory", meta = (DisplayName = "Find Item by Guid"))
 	bool FindItemByGuid(const FGuid& ItemGuid, FInventoryEntry& OutItem) const;
@@ -228,6 +237,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="Modular Inventory|Events")
 	FInventoryMaxSlotsChangedSignature OnMaxSlotsChanged;
 	
+protected:
 	UPROPERTY(Replicated)
 	FInventoryList InventoryEntries;
 	
@@ -247,9 +257,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Modular Inventory|Config")
 	FGameplayTagQuery AllowedItemTagQuery;
 	
-protected:
 	UInventoryItemInstance* CreateItemInstance(const UInventoryItemDefinition* ItemDef);
+	
+	void FillExistingStacks(const UInventoryItemDefinition* ItemDef, const UItemFragment_Stackable* StackableFragment, int32& Quantity);
+
+	void AddIntoNewSlots(const UInventoryItemDefinition* ItemDef, const UItemFragment_Stackable* StackableFragment, int32& Quantity);
 	
 	UFUNCTION()
 	void OnRep_MaxSlots();
+	
+	void HandleMaxSlotsChanged();
 };
